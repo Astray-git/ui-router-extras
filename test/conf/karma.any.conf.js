@@ -9,7 +9,7 @@ module.exports = function(_config) {
   config.files.push('bower_components/jquery/dist/jquery.js');
   config.files.push('bower_components/angular/angular.js');
   config.files.push('bower_components/angular-mocks/angular-mocks.js');
-  config.files.push('bower_components/lodash/dist/lodash.js');
+  config.files.push('bower_components/lodash/lodash.js');
   config.files.push('test/testUtil.js');
   config.files.push('ui-router-versions/' + dynamicConfig.uiRouter + '/angular-ui-router.js');
 

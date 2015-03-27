@@ -540,6 +540,125 @@ angular.module("ct.ui.router.extras.sticky").config(
 
         $log.debug("Views: " + message);
       }
+
+      // Decorate the ui-sref directive, to communicate with uiSrefStickyActive[Equals]
+      $provide.decorator("uiSrefDirective", ['$delegate', function (uiSerfDirective) {
+        uiSerfDirective.require = [
+            '?^uiSrefActive',
+            '?^uiSrefActiveEq',
+            '?^uiSrefStickyActive',
+            '?^uiSrefStickyActiveEq'
+        ];
+        uiSerfDirective.link = function(scope, element, attrs, uiSrefActive) {
+          var ref = parseStateRef(attrs.uiSref, $state.current.name);
+          var params = null, url = null, base = stateContext(element) || $state.$current;
+          var newHref = null, isAnchor = element.prop("tagName") === "A";
+          var isForm = element[0].nodeName === "FORM";
+          var attr = isForm ? "action" : "href", nav = true;
+
+          var options = { relative: base, inherit: true };
+          var optionsOverride = scope.$eval(attrs.uiSrefOpts) || {};
+
+          angular.forEach(allowedOptions, function(option) {
+            if (option in optionsOverride) {
+              options[option] = optionsOverride[option];
+            }
+          });
+
+          var update = function(newVal) {
+            if (newVal) params = angular.copy(newVal);
+            if (!nav) return;
+
+            newHref = $state.href(ref.state, params, options);
+
+            var activeDirective = uiSrefActive[1] || uiSrefActive[0];
+            var stickyActiveDirective = uiSrefActive[3] || uiSrefActive[2];
+            if (activeDirective) {
+              activeDirective.$$setStateInfo(ref.state, params);
+            }
+            if (stickyActiveDirective) {
+              stickyActiveDirective.$$setStateInfo(ref.state, params);
+            }
+            if (newHref === null) {
+              nav = false;
+              return false;
+            }
+            attrs.$set(attr, newHref);
+          };
+
+          if (ref.paramExpr) {
+            scope.$watch(ref.paramExpr, function(newVal, oldVal) {
+              if (newVal !== params) update(newVal);
+            }, true);
+            params = angular.copy(scope.$eval(ref.paramExpr));
+          }
+          update();
+
+          if (isForm) return;
+
+          element.bind("click", function(e) {
+            var button = e.which || e.button;
+            if ( !(button > 1 || e.ctrlKey || e.metaKey || e.shiftKey || element.attr('target')) ) {
+              // HACK: This is to allow ng-clicks to be processed before the transition is initiated:
+              var transition = $timeout(function() {
+                $state.go(ref.state, params, options);
+              });
+              e.preventDefault();
+
+              // if the state has no URL, ignore one preventDefault from the <a> directive.
+              var ignorePreventDefaultCount = isAnchor && !newHref ? 1: 0;
+              e.preventDefault = function() {
+                if (ignorePreventDefaultCount-- <= 0)
+                  $timeout.cancel(transition);
+              };
+            }
+          });
+        };
+        return uiSerfDirective;
+      }]);
     }
   ]
 );
+
+angular.module("ct.ui.router.extras.sticky").directive("uiSerfStickyActive", [
+  '$state', '$stickyState', '$interpolate', function ($state, $stickyState, $interpolate) {
+    return  {
+      restrict: "A",
+      controller: ['$scope', '$element', '$attrs', function ($scope, $element, $attrs) {
+        var state, params, activeClass;
+
+        // There probably isn't much point in $observing this
+        // uiSrefStickyActive and uiSrefStickyActiveEq share the same directive object with some
+        // slight difference in logic routing
+        activeClass = $interpolate($attrs.uiSrefStickyActiveLast || $attrs.uiSrefStickyActive || '', false)($scope);
+
+        // Allow uiSref to communicate with uiSrefStickyActive[Last]
+        this.$$setStateInfo = function (newState, newParams) {
+          state = $state.get(newState, stateContext($element));
+          params = newParams;
+          update();
+        };
+
+        $scope.$on('$stateChangeSuccess', update);
+
+        // Update route state
+        function update() {
+          if (isMatch()) {
+            $element.addClass(activeClass);
+          } else {
+            $element.removeClass(activeClass);
+          }
+        }
+
+        function isMatch() {
+          var inActiveStates = $stickyState.getInactiveStates();
+          if (typeof $attrs.uiSrefStickyActiveLast !== 'undefined') {
+            return state && $state.is(inActiveStates[0], params);
+          } else {
+            return state && $stickyState.getInactiveStates(state, params) !== null;
+          }
+        }
+      }]
+    };
+  }
+]);
